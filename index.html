@@ -229,6 +229,23 @@
 
 <div id="statusbar"><span>Ready.</span></div>
 
+<div id="error-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.82); z-index:999; align-items:center; justify-content:center;">
+  <div style="background:#1a0808; border:2px solid #ff3030; border-radius:10px; padding:36px 40px; max-width:420px; text-align:center; font-family:'Courier New',monospace;">
+    <div style="font-size:2.5rem; margin-bottom:12px;">⚠️</div>
+    <div style="font-size:1.1rem; color:#ff6060; font-weight:bold; margin-bottom:10px;">DUNGEON UNSOLVABLE</div>
+    <div id="error-msg" style="font-size:0.82rem; color:#cc8888; margin-bottom:20px; line-height:1.6;"></div>
+    <div style="font-size:0.75rem; color:#886666; margin-bottom:24px;">This seed's item pool is missing a required gate key.<br>Try a different seed.</div>
+    <button onclick="document.getElementById('error-overlay').style.display='none'; document.getElementById('btn-rand').click();"
+      style="background:#7c83ff; color:#0d0d1a; border:none; border-radius:5px; padding:10px 24px; font-family:inherit; font-size:0.9rem; font-weight:bold; cursor:pointer; margin-right:10px;">
+      🎲 NEW RANDOM SEED
+    </button>
+    <button onclick="document.getElementById('error-overlay').style.display='none';"
+      style="background:#2a2a4a; color:#9090c0; border:1px solid #4a4a7a; border-radius:5px; padding:10px 16px; font-family:inherit; font-size:0.85rem; cursor:pointer;">
+      DISMISS
+    </button>
+  </div>
+</div>
+
 <script>
 const API = "http://localhost:8080/api";
 let state = {
@@ -510,6 +527,9 @@ async function loadOptimizerData() {
     if (!data.solvable) {
       setStatus("❌ " + (data.reason || "Unsolvable"));
       renderHistory(state.history);
+      const overlay = document.getElementById("error-overlay");
+      document.getElementById("error-msg").textContent = data.reason || "Dungeon is unsolvable with this seed.";
+      overlay.style.display = "flex";
       return false;
     }
 
