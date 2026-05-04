@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Constraint-Based Loadout & Path Optimizer</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0d0d1a;
+    color: #e0e0f0;
+    font-family: 'Courier New', monospace;
+    height: 100vh;
+    display: grid;
+    grid-template-rows: auto auto 1fr auto;
+    gap: 8px;
+    padding: 8px;
+    overflow: hidden;
+  }
+  h1 { font-size: 1.1rem; color: #7c83ff; text-align: center; letter-spacing: 2px; padding: 4px 0; }
+
+  /* Complexity banner */
+  #complexity {
+    background: #12122a;
+    border: 1px solid #2a2a5a;
+    border-radius: 4px;
+    padding: 6px 12px;
+    font-size: 0.75rem;
+    color: #a0a8ff;
+    text-align: center;
+  }
+  #complexity span { color: #ff9f43; font-weight: bold; }
+
+  /* Main layout */
+  #main {
+    display: grid;
+    grid-template-columns: 220px 1fr 280px;
+    gap: 8px;
+    overflow: hidden;
+  }
+
+  .panel {
+    background: #12122a;
+    border: 1px solid #2a2a5a;
+    border-radius: 6px;
+    padding: 10px;
+    overflow-y: auto;
+  }
+  .panel h2 { font-size: 0.8rem; color: #7c83ff; margin-bottom: 8px; letter-spacing: 1px; text-transform: uppercase; }
+
+  /* Controls */
+  label { font-size: 0.72rem; color: #9090b0; display: block; margin-top: 8px; margin-bottom: 2px; }
+  input[type=number], select {
+    width: 100%;
+    background: #0d0d1a;
+    border: 1px solid #3a3a6a;
+    color: #e0e0f0;
+    padding: 4px 6px;
+    border-radius: 3px;
+    font-family: inherit;
+    font-size: 0.8rem;
+  }
+  input[type=range] { width: 100%; accent-color: #7c83ff; }
+  #cap-val { color: #ff9f43; font-size: 0.8rem; }
+
+  button {
+    margin-top: 10px;
+    width: 100%;
+    padding: 7px;
+    border: none;
+    border-radius: 4px;
+    font-family: inherit;
+    font-size: 0.82rem;
+    cursor: pointer;
+    font-weight: bold;
+    letter-spacing: 1px;
+  }
+  #btn-run { background: #7c83ff; color: #0d0d1a; }
+  #btn-run:hover { background: #9fa6ff; }
+  #btn-step { background: #2a2a5a; color: #a0a8ff; border: 1px solid #4a4a8a; }
+  #btn-step:hover { background: #3a3a7a; }
+  #btn-reset { background: #1a1a3a; color: #606080; border: 1px solid #2a2a4a; }
+
+  #iter-counter { text-align: center; margin-top: 6px; font-size: 0.75rem; color: #60ff80; min-height: 16px; }
+
+  label#speed-label { margin-top: 8px; }
+
+  /* Pool display */
+  #pool-list { margin-top: 6px; font-size: 0.68rem; color: #8888aa; line-height: 1.6; }
+
+  /* Dungeon grid */
+  #grid-panel { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; }
+  #dungeon-title { font-size: 0.75rem; color: #9090c0; margin-bottom: 6px; }
+  #grid-container {
+    display: grid;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+  .cell {
+    width: 44px;
+    height: 44px;
+    border-radius: 3px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.6rem;
+    font-weight: bold;
+    text-align: center;
+    line-height: 1.2;
+    transition: background 0.15s;
+    border: 1px solid #1a1a3a;
+  }
+  .cell-open    { background: #1a1a2e; color: #3a3a5a; }
+  .cell-wall    { background: #0a0a14; color: #222; border-color: #111; }
+  .cell-start   { background: #1a4a1a; color: #60ff80; }
+  .cell-goal    { background: #4a4a00; color: #ffd700; }
+  .cell-gate-fire   { background: #3a1a00; color: #ff6020; border-color: #ff4000; }
+  .cell-gate-ice    { background: #001a3a; color: #40c0ff; border-color: #0080ff; }
+  .cell-gate-shadow { background: #1a001a; color: #c040ff; border-color: #8000ff; }
+  .cell-gate-arcane { background: #0a1a00; color: #80ff40; border-color: #40c000; }
+  .cell-gate-other  { background: #2a1a00; color: #ffa040; border-color: #ff8000; }
+  .cell-visited   { background: #1a4a8a !important; border-color: #4488ff !important; }
+  .cell-path      { background: #006600 !important; border-color: #00ff44 !important; color: #00ff44 !important; }
+  .cell-backtrack { background: #2a1010 !important; border-color: #440000 !important; }
+  .cell-blocked   { background: #880000 !important; border-color: #ff2020 !important; color: #ffaaaa !important; }
+
+  /* History sidebar */
+  .iter-card {
+    border: 1px solid #2a2a5a;
+    border-radius: 4px;
+    padding: 7px 8px;
+    margin-bottom: 6px;
+    font-size: 0.68rem;
+    background: #0d0d1a;
+  }
+  .iter-card h3 { font-size: 0.72rem; margin-bottom: 4px; }
+  .iter-card.success h3 { color: #60ff80; }
+  .iter-card.blocked h3 { color: #ff6060; }
+  .iter-card .items { color: #9090b0; line-height: 1.5; }
+  .iter-card .stat { color: #ff9f43; }
+  .iter-card .missing { color: #ff4060; margin-top: 3px; }
+  .iter-card .injected { color: #a0a8ff; font-size: 0.65rem; }
+
+  /* DP Table */
+  #dp-section { margin-top: 10px; }
+  #dp-section h3 { font-size: 0.72rem; color: #7c83ff; margin-bottom: 5px; }
+  #dp-table-container { overflow: auto; max-height: 180px; }
+  .dp-table { border-collapse: collapse; font-size: 0.55rem; }
+  .dp-table td {
+    width: 18px; height: 14px;
+    text-align: center;
+    border: 1px solid #1a1a3a;
+    color: #6060a0;
+  }
+  .dp-table td.dp-hot { background: #1a2a4a; color: #80c0ff; }
+  .dp-table td.dp-max { background: #2a4a2a; color: #80ff80; }
+
+  /* Status bar */
+  #statusbar {
+    background: #0a0a18;
+    border: 1px solid #1a1a3a;
+    border-radius: 3px;
+    padding: 4px 10px;
+    font-size: 0.7rem;
+    color: #6060a0;
+    text-align: center;
+  }
+  #statusbar span { color: #a0a8ff; }
+</style>
+</head>
+<body>
+
+<h1>⚔ CONSTRAINT-BASED LOADOUT & PATH OPTIMIZER ⚔</h1>
+
+<div id="complexity">
+  Complexity: <code>O(G · (n·W + 4<sup>k</sup>))</code> &nbsp;|&nbsp;
+  G=<span id="cx-G">0</span> &nbsp; n=<span id="cx-n">0</span> &nbsp; W=<span id="cx-W">0</span> &nbsp; k=<span id="cx-k">0</span>
+</div>
+
+<div id="main">
+  <!-- Panel 1: Controls -->
+  <div class="panel" id="ctrl-panel">
+    <h2>Controls</h2>
+    <label>Seed (64-bit int)</label>
+    <input type="number" id="seed-input" min="0">
+    <button id="btn-rand" style="background:#1a2a1a;color:#60c060;border:1px solid #304a30;margin-top:4px;">🎲 RANDOM SEED</button>
+
+    <label>Capacity: <span id="cap-val">25</span></label>
+    <input type="range" id="cap-slider" min="10" max="50" value="25">
+
+    <label>Dungeon</label>
+    <select id="dungeon-select">
+      <option value="1">1 — The Tutorial (5×5)</option>
+      <option value="2">2 — The Gauntlet (8×8)</option>
+      <option value="3">3 — The Labyrinth (10×10)</option>
+    </select>
+
+    <label>Anim Speed (steps/sec): <span id="speed-val">1</span></label>
+    <input type="range" id="speed-slider" min="0.1" max="10" step="0.1" value="1" id="speed-label">
+
+    <button id="btn-run">▶ RUN OPTIMIZER</button>
+    <button id="btn-step">STEP ▷</button>
+    <button id="btn-reset">RESET</button>
+    <div id="iter-counter"></div>
+
+    <div>
+      <label style="margin-top:12px;">Item Pool <span style="color:#4a6a4a;font-size:0.62rem;">(✔ = equipped)</span></label>
+      <div id="pool-list">—</div>
+    </div>
+  </div>
+
+  <!-- Panel 2: Dungeon Grid -->
+  <div class="panel" id="grid-panel">
+    <h2>Dungeon</h2>
+    <div id="dungeon-title">—</div>
+    <div id="grid-container"></div>
+  </div>
+
+  <!-- Panel 3: History + DP -->
+  <div class="panel" id="history-panel">
+    <h2>Iteration History</h2>
+    <div id="history-list"></div>
+    <div id="dp-section">
+      <h3>DP Table (current iteration)</h3>
+      <div id="dp-table-container">—</div>
+    </div>
+  </div>
+</div>
+
+<div id="statusbar"><span>Ready.</span></div>
+
+<script>
+const API = "http://localhost:8080/api";
+let state = {
+  grid: null, start: null, goal: null,
+  history: [], stepQueue: [], stepIdx: 0,
+  running: false, stepping: false,
+  animTimer: null,
+  result: null
+};
+
+// Controls
+const seedInput = document.getElementById("seed-input");
+seedInput.value = Math.floor(Math.random() * 1e12);
+const capSlider = document.getElementById("cap-slider");
+const capVal    = document.getElementById("cap-val");
+const dungeonSel= document.getElementById("dungeon-select");
+const speedSlider=document.getElementById("speed-slider");
+const speedVal  = document.getElementById("speed-val");
+const btnRun    = document.getElementById("btn-run");
+const btnStep   = document.getElementById("btn-step");
+const btnReset  = document.getElementById("btn-reset");
+const iterCtr   = document.getElementById("iter-counter");
+const poolList  = document.getElementById("pool-list");
+const gridCont  = document.getElementById("grid-container");
+const histList  = document.getElementById("history-list");
+const dpCont    = document.getElementById("dp-table-container");
+const status    = document.getElementById("statusbar");
+
+capSlider.oninput = () => { capVal.textContent = capSlider.value; };
+speedSlider.oninput = () => { speedVal.textContent = parseFloat(speedSlider.value).toFixed(1); };
+function stepDelay() { return Math.round(1000 / parseFloat(speedSlider.value)); }
+
+function setStatus(msg) { status.innerHTML = `<span>${msg}</span>`; }
+function setCx(G, n, W, k) {
+  document.getElementById("cx-G").textContent = G;
+  document.getElementById("cx-n").textContent = n;
+  document.getElementById("cx-W").textContent = W;
+  document.getElementById("cx-k").textContent = k;
+}
+
+// ---- Grid rendering ----
+function gateClass(attr) {
+  if (attr === "fire_key")   return "cell-gate-fire";
+  if (attr === "ice_key")    return "cell-gate-ice";
+  if (attr === "shadow_pass")return "cell-gate-shadow";
+  if (attr === "arcane_sigil")return "cell-gate-arcane";
+  return "cell-gate-other";
+}
+function gateLabel(attr) {
+  if (attr === "fire_key")   return "🔥\nFire";
+  if (attr === "ice_key")    return "❄️\nIce";
+  if (attr === "shadow_pass")return "🌑\nShadow";
+  if (attr === "arcane_sigil")return "✨\nArcane";
+  return "🔒\n"+attr;
+}
+
+function renderGrid(grid, start, goal) {
+  const rows = grid.length, cols = grid[0].length;
+  gridCont.style.gridTemplateColumns = `repeat(${cols}, ${cellSize(cols)}px)`;
+  gridCont.innerHTML = "";
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const cell = document.createElement("div");
+      cell.className = "cell";
+      cell.id = `cell-${r}-${c}`;
+      const v = grid[r][c];
+      if (r === start[0] && c === start[1]) {
+        cell.classList.add("cell-start"); cell.textContent = "START";
+      } else if (r === goal[0] && c === goal[1]) {
+        cell.classList.add("cell-goal"); cell.textContent = "★";
+      } else if (v === 1) {
+        cell.classList.add("cell-wall"); cell.textContent = "█";
+      } else if (typeof v === "string" && v.startsWith("GATE:")) {
+        const attr = v.split(":")[1];
+        cell.classList.add(gateClass(attr));
+        cell.textContent = gateLabel(attr);
+        cell.style.whiteSpace = "pre";
+      } else {
+        cell.classList.add("cell-open");
+      }
+      const s = cellSize(cols);
+      cell.style.width = s+"px"; cell.style.height = s+"px";
+      if (cols > 8) cell.style.fontSize = "0.5rem";
+      gridCont.appendChild(cell);
+    }
+  }
+}
+
+function cellSize(cols) {
+  if (cols <= 5) return 54;
+  if (cols <= 8) return 44;
+  return 36;
+}
+
+function resetCellColors(grid, start, goal) {
+  if (!grid) return;
+  const rows = grid.length, cols = grid[0].length;
+  for (let r = 0; r < rows; r++) for (let c = 0; c < cols; c++) {
+    const el = document.getElementById(`cell-${r}-${c}`);
+    if (!el) continue;
+    el.classList.remove("cell-visited","cell-path","cell-backtrack","cell-blocked");
+  }
+}
+
+function applyStep(step) {
+  const [type, r, c] = step;
+  const el = document.getElementById(`cell-${r}-${c}`);
+  if (!el) return;
+  el.classList.remove("cell-visited","cell-path","cell-backtrack","cell-blocked");
+  if (type === "visit")     el.classList.add("cell-visited");
+  if (type === "path")      el.classList.add("cell-path");
+  if (type === "backtrack") el.classList.add("cell-backtrack");
+  if (type === "blocked")   el.classList.add("cell-blocked");
+}
+
+// ---- Pool display ----
+function renderPool(pool, equippedNames) {
+  if (!pool || !pool.length) { poolList.innerHTML = "—"; return; }
+  const equippedSet = new Set(equippedNames);
+  poolList.innerHTML = pool.map(it => {
+    const equipped = equippedSet.has(it.name);
+    const attrs = it.attributes.length ? ` <span style="color:#ff9f43">[${it.attributes.join(",")}]</span>` : "";
+    const check = equipped ? `<span style="color:#60ff80">✔</span>` : `<span style="color:#444">•</span>`;
+    const nameStyle = equipped ? "color:#e0e0f0" : "color:#666688";
+    return `<div>${check} <span style="${nameStyle}">${it.name}</span> (⚡${it.power}/⚖${it.weight})${attrs}</div>`;
+  }).join("");
+}
+
+// ---- Iteration history ----
+function renderHistory(history) {
+  histList.innerHTML = "";
+  let totalK = 0;
+  history.forEach(h => {
+    totalK += h.steps ? h.steps.length : 0;
+    const card = document.createElement("div");
+    card.className = "iter-card " + h.result;
+    const mandStr = h.mandatory_attrs.length ? `<div class="injected">Required: [${h.mandatory_attrs.join(", ")}]</div>` : "";
+    const resultStr = h.result === "success"
+      ? `<span style="color:#60ff80">✅ Path found!</span>`
+      : `<span class="missing">❌ Blocked — missing: ${h.missing_attr}</span>`;
+    card.innerHTML = `
+      <h3>Iteration #${h.iteration}</h3>
+      ${mandStr}
+      <div class="items">${h.loadout.join(", ")}</div>
+      <div class="stat">⚡ ${h.total_power} power &nbsp; ⚖ ${h.total_weight} wt</div>
+      <div>${resultStr}</div>
+    `;
+    histList.appendChild(card);
+  });
+  setCx(history.length, state.poolSize || 0, capSlider.value, totalK);
+  if (history.length > 0) renderDPTable(history[history.length-1]);
+}
+
+function renderDPTable(h) {
+  if (!h || !h.dp_table) { dpCont.textContent = "—"; return; }
+  const dp = h.dp_table;
+  const maxVal = Math.max(...dp.flat());
+  let html = '<table class="dp-table">';
+  dp.forEach(row => {
+    html += "<tr>";
+    row.forEach(v => {
+      const cls = v === maxVal && v > 0 ? "dp-max" : v > 0 ? "dp-hot" : "";
+      html += `<td class="${cls}">${v}</td>`;
+    });
+    html += "</tr>";
+  });
+  html += "</table>";
+  dpCont.innerHTML = html;
+}
+
+// ---- Animation ----
+function buildStepQueue(history) {
+  const queue = [];
+  history.forEach(h => {
+    queue.push({type:"iter-start", iter: h});
+    (h.steps || []).forEach(s => queue.push({type:"step", step: s}));
+    queue.push({type:"iter-end", iter: h});
+  });
+  return queue;
+}
+
+function runAnim() {
+  if (!state.stepQueue.length) return;
+  state.running = true;
+  animNext();
+}
+
+function animNext() {
+  if (state.stepIdx >= state.stepQueue.length) {
+    state.running = false;
+    setStatus("Done.");
+    return;
+  }
+  const item = state.stepQueue[state.stepIdx++];
+  handleQueueItem(item);
+  const delay = item.type === "step" ? stepDelay() : Math.max(stepDelay() * 3, 800);
+  state.animTimer = setTimeout(animNext, delay);
+}
+
+function handleQueueItem(item) {
+  if (item.type === "iter-start") {
+    const h = item.iter;
+    resetCellColors(state.grid, state.start, state.goal);
+    iterCtr.textContent = `Iteration ${h.iteration}`;
+    renderHistory(state.history.slice(0, h.iteration));
+    if (state.pool) renderPool(state.pool, h.loadout);
+  } else if (item.type === "step") {
+    applyStep(item.step);
+  } else if (item.type === "iter-end") {
+    renderHistory(state.history.slice(0, item.iter.iteration));
+    // if success, flash the final path bright green
+    if (item.iter.result === "success" && item.iter.path) {
+      item.iter.path.forEach(([r, c]) => {
+        const el = document.getElementById(`cell-${r}-${c}`);
+        if (el) {
+          el.classList.remove("cell-visited","cell-backtrack","cell-blocked");
+          el.classList.add("cell-path");
+        }
+      });
+    }
+  }
+}
+
+async function stepOnce() {
+  // If no data loaded yet, fetch it first then stop auto-play
+  if (!state.stepQueue.length) {
+    await loadOptimizerData();
+    return;
+  }
+  // Pause auto-play if running
+  if (state.animTimer) { clearTimeout(state.animTimer); state.animTimer = null; }
+  state.running = false;
+  if (state.stepIdx >= state.stepQueue.length) { setStatus("Done."); return; }
+  const item = state.stepQueue[state.stepIdx++];
+  handleQueueItem(item);
+  setStatus(`Step ${state.stepIdx} / ${state.stepQueue.length}`);
+}
+
+// ---- Main run ----
+async function loadOptimizerData() {
+  if (state.animTimer) clearTimeout(state.animTimer);
+  histList.innerHTML = "";
+  dpCont.textContent = "—";
+  iterCtr.textContent = "";
+  state.stepQueue = [];
+  state.stepIdx = 0;
+  setStatus("Fetching from server…");
+
+  const seed = parseInt(seedInput.value) || 42;
+  const capacity = parseInt(capSlider.value);
+  const dungeonId = parseInt(dungeonSel.value);
+
+  try {
+    const res = await fetch(`${API}/optimize`, {
+      method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body: JSON.stringify({seed, capacity, dungeon_id: dungeonId})
+    });
+    const data = await res.json();
+
+    if (data.dungeon) {
+      state.grid = data.dungeon.grid;
+      state.start = data.dungeon.start;
+      state.goal  = data.dungeon.goal;
+      document.getElementById("dungeon-title").textContent = data.dungeon.name;
+      renderGrid(state.grid, state.start, state.goal);
+    }
+
+    if (data.pool) {
+      state.pool = data.pool;
+      state.poolSize = data.pool.length;
+      renderPool(data.pool, []);
+    }
+
+    state.history = data.history || [];
+    state.stepQueue = buildStepQueue(state.history);
+    state.stepIdx = 0;
+
+    if (!data.solvable) {
+      setStatus("❌ " + (data.reason || "Unsolvable"));
+      renderHistory(state.history);
+      return false;
+    }
+
+    setCx(0, state.poolSize, capacity, 0);
+    setStatus("Ready — click Step or Run.");
+    return true;
+  } catch(e) {
+    setStatus("Error: " + e.message + " — is server running?");
+    return false;
+  }
+}
+
+async function runOptimizer() {
+  const ok = await loadOptimizerData();
+  if (ok) runAnim();
+}
+
+btnRun.onclick = runOptimizer;
+btnStep.onclick = stepOnce;
+btnReset.onclick = () => {
+  if (state.animTimer) clearTimeout(state.animTimer);
+  state.running = false;
+  state.stepQueue = [];
+  state.stepIdx = 0;
+  state.history = [];
+  state.pool = null;
+  resetCellColors(state.grid, state.start, state.goal);
+  histList.innerHTML = "";
+  dpCont.textContent = "—";
+  iterCtr.textContent = "";
+  poolList.innerHTML = "—";
+  setCx(0, 0, 0, 0);
+  setStatus("Reset — change seed or click 🎲 for random, then Run.");
+};
+
+document.getElementById("btn-rand").onclick = () => {
+  seedInput.value = Math.floor(Math.random() * 1e12);
+};
+
+// Init: load dungeon grid on page load
+(async () => {
+  try {
+    const res = await fetch(`${API}/dungeon/1`);
+    const d = await res.json();
+    state.grid = d.grid; state.start = d.start; state.goal = d.goal;
+    document.getElementById("dungeon-title").textContent = d.name;
+    renderGrid(d.grid, d.start, d.goal);
+  } catch(e) { setStatus("Server offline — start with: python app.py"); }
+})();
+
+dungeonSel.onchange = async () => {
+  try {
+    const id = parseInt(dungeonSel.value);
+    const res = await fetch(`${API}/dungeon/${id}`);
+    const d = await res.json();
+    state.grid = d.grid; state.start = d.start; state.goal = d.goal;
+    document.getElementById("dungeon-title").textContent = d.name;
+    renderGrid(d.grid, d.start, d.goal);
+    histList.innerHTML = ""; dpCont.textContent = "—"; iterCtr.textContent = "";
+  } catch(e) {}
+};
+</script>
+</body>
+</html>
